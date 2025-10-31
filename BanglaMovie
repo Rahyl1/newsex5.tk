@@ -1,9 +1,220 @@
-backend/
-│   ├── server.js
-│   ├── models/Video.js
-│   └── routes/videos.js
-├── frontend/
-│   ├── pages/index.js
-│   ├── pages/watch/[id].js
-│   └── components/
-│       └── VideoCard.jsx
+banglamovie/
+├── backend/
+│   ├── package.json {
+  "name": "banglamovie-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "mongoose": "^6.0.0"
+  }
+}
+│   ├── server.js import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import dotenv from "dotenv";
+import Video from "./models/Video.js";
+
+dotenv.config();
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const PORT = process.env.PORT || 5000;
+const MONGO = process.env.MONGODB_URI;
+
+mongoose.connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(()=> console.log("MongoDB connected"))
+  .catch(err => console.error("Mongo err:", err));
+
+// Public: get all videos
+app.get("/api/videos", async (req, res) => {
+  const q = req.query.q || "";
+  const cat = req.query.category;
+  const filter = {};
+  if (q) filter.title = { $regex: q, $options: "i" };
+  if (cat) filter.category = cat;
+  const list = await Video.find(filter).sort({ createdAt: -1 });
+  res.json(list);
+});
+
+// Public: get one video by id (and increment view)
+app.get("/api/videos/:id", async (req, res) => {
+  const id = req.params.id;
+  const video = await Video.findById(id);
+  if (!video) return res.status(404).json({ error: "Not found" });
+  video.views = (video.views || 0) + 1;
+  await video.save();
+  res.json(video);
+});
+
+// Admin: add video (simple, no auth — later add auth)
+app.post("/api/admin/add", async (req, res) => {
+  const data = req.body;
+  try {
+    const v = new Video(data);
+    await v.save();
+    res.json({ ok: true, id: v._id });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
+// Admin: delete
+app.delete("/api/admin/delete/:id", async (req,res)=> {
+  await Video.findByIdAndDelete(req.params.id);
+  res.json({ ok:true });
+});
+
+app.listen(PORT, ()=> console.log("Server running on port", PORT));
+│   ├── .env                <--MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/banglamovie?retryWrites=true&w=majority
+PORT=5000 MONGODB_URI, PORT
+│   └── models/
+│       └── Video.js import mongoose from "mongoose";
+
+const schema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, default: "" },
+  thumbnail: { type: String, default: "" },
+  videoUrl: { type: String, required: true }, // embed / direct CDN link
+  category: { type: String, default: "General" },
+  views: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
+});
+
+export default mongoose.models.Video || mongoose.model("Video", schema);
+└── frontend/
+    ├── package.json {
+  "name": "banglamovie-frontend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000"
+  },
+  "dependencies": {
+    "next": "13.4.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  }
+}
+    
+
+├── next.config.js module.exports = {
+  env: {
+    NEXT_PUBLIC_API: process.env.NEXT_PUBLIC_API || "http://localhost:5000"
+  }
+}
+
+    ├── pages/
+    │ 
+
+  ├── index.js import Link from "next/link";
+import { useEffect, useState } from "react";
+
+export default function Home(){
+  const [videos, setVideos] = useState([]);
+  useEffect(()=> {
+    fetch(process.env.NEXT_PUBLIC_API + "/api/videos")
+      .then(r=> r.json())
+      .then(setVideos)
+  }, []);
+  return (
+    <div style={{background:"#000", color:"#fff", minHeight:"100vh", padding:10}}>
+      <header style={{textAlign:"center", padding:12, fontSize:20, fontWeight:700}}>BanglaMovie — বাংলা মুভি</header>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:12}}>
+        {videos.map(v=> (
+          <Link key={v._id} href={`/watch/${v._id}`}>
+            <a style={{textDecoration:"none", color:"#fff"}}>
+              <div style={{borderRadius:8, overflow:"hidden", background:"#111"}}>
+                <img src={v.thumbnail || "/placeholder.jpg"} style={{width:"100%", height:120, objectFit:"cover"}} alt={v.title}/>
+                <div style={{padding:8}}>
+                  <div style={{fontSize:14, fontWeight:600}}>{v.title}</div>
+                  <div style={{fontSize:12, color:"#bbb"}}>{v.views || 0} views</div>
+                </div>
+              </div>
+            </a>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+    │ 
+
+  ├── watch/[id].js import { useRouter } from "next/router";
+import { useEffect, useState } from "react";
+
+export default function Watch(){
+  const router = useRouter();
+  const { id } = router.query;
+  const [video, setVideo] = useState(null);
+
+  useEffect(()=>{
+    if(!id) return;
+    fetch(process.env.NEXT_PUBLIC_API + "/api/videos/" + id)
+      .then(r=> r.json())
+      .then(setVideo);
+  }, [id]);
+
+  if(!video) return <div style={{padding:20}}>Loading...</div>;
+
+  return (
+    <div style={{background:"#000", color:"#fff", minHeight:"100vh", padding:12}}>
+      <header style={{textAlign:"center", padding:12, fontSize:18}}>🔴 {video.title}</header>
+      <div style={{maxWidth:900, margin:"0 auto"}}>
+        {/* If videoUrl is an embed (YouTube) use iframe; if direct mp4 use video tag */}
+        {video.videoUrl.includes("youtube") || video.videoUrl.includes("youtu.be") ? (
+          <div style={{position:"relative",paddingTop:"56.25%"}}>
+            <iframe src={video.videoUrl} frameBorder="0" allowFullScreen style={{position:"absolute",top:0,left:0,width:"100%",height:"100%"}}/>
+          </div>
+        ) : (
+          <video controls style={{width:"100%", borderRadius:8}}>
+            <source src={video.videoUrl} />
+          </video>
+        )}
+        <div style={{padding:12}}>
+          <h2>{video.title}</h2>
+          <p style={{color:"#ddd"}}>{video.description}</p>
+          <p style={{color:"#aaa"}}>{video.views} views</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+    │   └── admin.js import { useState } from "react";
+
+export default function Admin(){
+  const [form, setForm] = useState({ title:"", videoUrl:"", thumbnail:"", description:"", category:"General" });
+  const submit = async (e) => {
+    e.preventDefault();
+    const res = await fetch(process.env.NEXT_PUBLIC_API + "/api/admin/add", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(form)
+    });
+    const data = await res.json();
+    if(data.ok) alert("Added! id: " + data.id);
+    else alert("Error");
+  };
+  return (
+    <div style={{padding:20}}>
+      <h1>Admin - Add Movie</h1>
+      <form onSubmit={submit} style={{display:"grid", gap:8, maxWidth:600}}>
+        <input placeholder="Title" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+        <input placeholder="videoUrl (YouTube/embed/mp4)" value={form.videoUrl} onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+        <input placeholder="thumbnail URL" value={form.thumbnail} onChange={e=>setForm({...form,thumbnail:e.target.value})}/>
+        <textarea placeholder="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>
+        <input placeholder="Category" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/>
+        <button type="submit">Add Movie</button>
+      </form>
+    </div>
+  );
+}
+    └── public/
+        └── placeholder.jpg
