@@ -1,0 +1,9 @@
+backend/
+│   ├── server.js
+│   ├── models/Video.js
+│   └── routes/videos.js
+├── frontend/
+│   ├── pages/index.js
+│   ├── pages/watch/[id].js
+│   └── components/
+│       └── VideoCard.jsx
